@@ -102,7 +102,7 @@ export const registerUser = async (req, res) => {
       const { otp, activationToken } = req.body;
   
       // Verify the activation token using JWT
-      const verify = jwt.verify(activationToken, process.env.Activation_Secret);
+      const verify = jwt.verify(activationToken, process.env.Activation_SECRET);
   
       if (!verify) {
         return res.status(400).json({
@@ -306,7 +306,7 @@ export const googleLogin = async (req, res) => {
     // Generate a JWT token for the user
     const token = jwt.sign(
       { _id: user._id }, 
-      process.env.JWT_SEC, 
+      process.env.JWT_SECRET_KEY, 
       { expiresIn: '15d' }  // Set the expiration for the token (e.g., 15 days)
     );
 
