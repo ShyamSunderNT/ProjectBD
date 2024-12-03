@@ -57,14 +57,24 @@ export const registerUser = async (req, res) => {
       await user.save();
   
       // Generate an OTP for email verification
-      const otp = Math.floor(Math.random() * 1000000); // OTP will be a 6-digit number
+      const otp = Math.floor(Math.random() * 1000000);
+
+      const secretKey = process.env.ACTIVATION_SECRET || 'fallback-secret-key'; // Fallback for local testing
+    if (!secretKey) {
+      return res.status(500).json({
+        message: "Secret key is missing!",
+      });
+    }
+      
+      console.log("ACTIVATION_SECRET: ", secretKey);// OTP will be a 6-digit number
   
       // Create a token for the OTP and send it for email verification
       const activationToken = jwt.sign(
         { userId: user._id, otp }, // Store userId and OTP in the token
-        process.env.ACTIVATION_SECRET, // Your secret for JWT
+        secretKey, // Your secret for JWT
         { expiresIn: '5m' } // Token expires in 5 minutes
       );
+  
   
       // Send the OTP to the user's email address
       await sendMail(
