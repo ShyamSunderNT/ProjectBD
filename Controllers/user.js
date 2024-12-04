@@ -1,108 +1,137 @@
-import { User } from "../Models/User.js";
 import bcryptjs from "bcryptjs";
 import jwt from "jsonwebtoken";
 import sendMail from "../Middleware/sendMail.js";
 import { OAuth2Client } from "google-auth-library";
+import { Director } from "../Models/director.js";
+import { Artist } from "../Models/artist.js";
 
 
 
 export const registerUser = async (req, res) => {
-    try {
-      // Extracting fields from the request body
-      const { firstName, lastName, mobileNumber, email, password, confirmPassword, role } = req.body;
-  
-      // Validate that the role is either "director" or "artist"
-      if (role !== 'director' && role !== 'artist') {
-        return res.status(400).json({
-          message: "Invalid role. Please choose either 'director' or 'artist'.",
-        });
-      }
-  
-      // Check if passwords match
-      if (password !== confirmPassword) {
-        return res.status(400).json({
-          message: "Passwords do not match!",
-        });
-      }
-  
-      // Check if the user already exists
-      let user = await User.findOne({ email });
-      if (user) {
-        return res.status(400).json({
-          message: "User already exists!",
-        });
-      }
+  try {
+    // Extracting fields from the request body
+    const { firstName, lastName, mobileNumber, email, password, confirmPassword, role } = req.body;
 
-      let userByMobile = await User.findOne({ mobileNumber });
-      if (userByMobile) {
+    // Validate that the role is either "director" or "artist"
+    if (role !== 'director' && role !== 'artist') {
+      return res.status(400).json({
+        message: "Invalid role. Please choose either 'director' or 'artist'.",
+      });
+    }
+
+    // Check if passwords match
+    if (password !== confirmPassword) {
+      return res.status(400).json({
+        message: "Passwords do not match!",
+      });
+    }
+
+    // Check if the user already exists with the same email or mobile number
+    let user;
+    if (role === 'director') {
+      user = await Director.findOne({ $or: [{ email }, { mobileNumber }] });
+    } else {
+      user = await Artist.findOne({ $or: [{ email }, { mobileNumber }] });
+    }
+
+    if (user) {
+      // If the user exists, check if the role is the same
+      if (user.role === role) {
         return res.status(400).json({
-          message: "Mobile number is already registered!",
+          message: `User already registered with this email or mobile number as a ${role}`,
+        });
+      } else {
+        // If the role is different, update the role
+        user.role = role;
+        await user.save();
+
+        return res.status(200).json({
+          message: `Your role has been updated to ${role}`,
+          user,
         });
       }
-  
-      // Hash the password using bcryptjs
-      const hashPassword = await bcryptjs.hash(password, 10);
-  
-      // Create the new user object with the provided role
-      user = new User({
+    }
+
+    // Hash the password using bcryptjs
+    const hashPassword = await bcryptjs.hash(password, 10);
+
+    // Create the new user object based on the role
+    if (role === 'director') {
+      user = new Director({
         firstName,
         lastName,
         mobileNumber,
         email,
         password: hashPassword,
-        role, // Assigning the role as either "director" or "artist"
+        role, // Assigning the role as "director"
       });
-  
-      // Save the user to the database
-      await user.save();
-  
-      // Generate an OTP for email verification
-      const otp = Math.floor(Math.random() * 1000000);
-
-      // OTP will be a 6-digit number
-  
-      // Create a token for the OTP and send it for email verification
-      const activationToken = jwt.sign(
-        { userId: user._id, otp },  // Payload
-        process.env.JWT_SECRET_KEY,  // Use JWT_SECRET_KEY for signing
-        { expiresIn: '5m' }  // Token expires in 5 minutes
-      );
-  
-  
-      // Send the OTP to the user's email address
-      await sendMail(
+    } else {
+      user = new Artist({
+        firstName,
+        lastName,
+        mobileNumber,
         email,
-        "Movies Company",
-        `Please verify your email address using the following OTP: ${otp}`
-      );
-  
-      // Return response with the activation token (for frontend verification)
-      res.status(200).json({
-        message: "OTP sent to your email",
-        activationToken,
-      });
-    } catch (error) {
-      // Error handling in case something goes wrong
-      console.error(error);
-      res.status(500).json({
-        message: "Server error. Please try again later.",
+        password: hashPassword,
+        role, // Assigning the role as "artist"
       });
     }
-  };
+
+    // Save the user to the database
+    await user.save();
+
+    // Generate an OTP for email verification
+    const otp = Math.floor(Math.random() * 1000000); // OTP will be a 6-digit number
+
+    // Create a token for the OTP and send it for email verification
+    const activationToken = jwt.sign(
+      { userId: user._id, otp, role: user.role }, // Add the role here as well
+      process.env.JWT_SECRET_KEY,
+      { expiresIn: '1h' }
+    );
+
+    // Send the OTP to the user's email address
+    await sendMail(
+      email,
+      "Movies Company",
+      `Please verify your email address using the following OTP: ${otp}`
+    );
+
+    // Return response with the activation token (for frontend verification)
+    res.status(200).json({
+      message: "OTP sent to your email",
+      activationToken,
+    });
+  } catch (error) {
+    // Error handling in case something goes wrong
+    console.error(error);
+    res.status(500).json({
+      message: "Server error. Please try again later.",
+    });
+  }
+};
 
   export const verifyUser = async (req, res) => {
     try {
       const { otp, activationToken } = req.body;
+      console.log('Activation Token:', activationToken);
+       
   
       // Verify the activation token using JWT
       const verify = jwt.verify(activationToken, process.env.JWT_SECRET_KEY);
-  
+      console.log('Decoded Token:', verify);
       if (!verify) {
         return res.status(400).json({
           success: false,
           message: "OTP expired",
         });
       }
+
+      if (!verify.userId || !verify.role) {
+        return res.status(400).json({
+            success: false,
+            message: "Invalid token data",
+        });
+    }
   
       if (Number(verify.otp) !== Number(otp)) {
         return res.status(400).json({
@@ -110,26 +139,36 @@ export const registerUser = async (req, res) => {
           message: "Wrong OTP",
         });
       }
+
+      console.log('Looking for user with userId:', verify.userId);
+      console.log('User role:', verify.role);
+  
   
       // Find the user by userId from the decoded token
-      const user = await User.findById(verify.userId);
-      if (!user) {
-        return res.status(400).json({
-          success: false,
-          message: "User not found",
-        });
+      let user;
+      if (verify.role === 'director') {
+          user = await Director.findById(verify.userId);
+      } else if (verify.role === 'artist') {
+          user = await Artist.findById(verify.userId);
       }
-  
+
+      if (!user) {
+          return res.status(400).json({
+              success: false,
+              message: "User not found",
+          });
+      }
       // Check if the mobile number already exists in the database for a different user
-      const existingUserByMobile = await User.findOne({
-        mobileNumber: user.mobileNumber,
-        _id: { $ne: user._id }, // Ensure it's not the same user
-      });
-  
-      if (existingUserByMobile) {
-        return res.status(400).json({
-          success: false,
-          message: "Mobile number is already registered with another account!",
+      let existingUserByMobile;
+      if (verify.role === 'director') {
+        existingUserByMobile = await Director.findOne({
+          mobileNumber: user.mobileNumber,
+          _id: { $ne: user._id }, // Ensure it's not the same user
+        });
+      } else if (verify.role === 'artist') {
+        existingUserByMobile = await Artist.findOne({
+          mobileNumber: user.mobileNumber,
+          _id: { $ne: user._id }, // Ensure it's not the same user
         });
       }
   
@@ -150,7 +189,7 @@ export const registerUser = async (req, res) => {
       });
     }
   };
-  
+
 
 
   export const directorloginUser = async (req, res) => {
@@ -165,14 +204,20 @@ export const registerUser = async (req, res) => {
       }
   
       // Find the user based on email or mobile number
-      const user = await User.findOne({
+      const user = await Director.findOne({
         $or: [{ email }, { mobileNumber }] // Checks for either email or mobileNumber
       });
   
       // If no user is found, return invalid credentials error
-      if (user.role !== 'director') {
-        return res.status(403).json({
-          message: "Only directors are allowed to login",
+      // if (user.role !== 'director') {
+      //   return res.status(403).json({
+      //     message: "Only directors are allowed to login",
+      //   });
+      // }
+
+      if (!user) {
+        return res.status(400).json({
+          message: "Invalid Credentials",
         });
       }
   
@@ -214,7 +259,7 @@ export const registerUser = async (req, res) => {
       }
   
       // Find the user based on email or mobile number
-      const user = await User.findOne({
+      const user = await Artist.findOne({
         $or: [{ email }, { mobileNumber }] // Checks for either email or mobileNumber
       });
   
@@ -278,7 +323,7 @@ export const googleLogin = async (req, res) => {
 
     // Extract user details from the payload of the verified token
     const payload = ticket.getPayload();
-    const { email, name, picture } = payload;
+    const { email, name } = payload;
 
     // Check if the user already exists in your database
     let user = await User.findOne({ email });
@@ -289,7 +334,6 @@ export const googleLogin = async (req, res) => {
         email,
         firstName: name.split(" ")[0],  // Split name into first and last
         lastName: name.split(" ")[1] || "",  // Handle cases with no last name
-        profilePicture: picture,
         isVerified: true,  // Assume users logging in with Google are verified
       });
 
@@ -312,7 +356,6 @@ export const googleLogin = async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        profilePicture: user.profilePicture,
         role: user.role,  // Send the role so that the frontend can handle it
       },
     });

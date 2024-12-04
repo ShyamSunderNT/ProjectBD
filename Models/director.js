@@ -28,8 +28,9 @@ const schema =new mongoose.Schema(
         },
         role: {
           type: String,
-          enum: ["director", "artist"], // Roles limited to director or artist
+          enum: ["director"], // Roles limited to director or artist
           required: true,
+          default: "director"
         },
         isVerified: {
             type: Boolean,
@@ -42,5 +43,5 @@ const schema =new mongoose.Schema(
     );
     
     // Create the User model
-    export const User = mongoose.model("User", schema);
+    export const Director = mongoose.model("Director", schema);
     

@@ -1,5 +1,4 @@
 import express from "express"
-import { isAuth } from "../Middleware/isAuth.js"
 import {  artistLoginUser, directorloginUser, googleLogin, registerUser, verifyUser } from "../Controllers/user.js"
 
 
